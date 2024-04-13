@@ -4,79 +4,30 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
 
 jobs:
   release:
-    name: Release binaries
+    name: release ${{ matrix.target }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            archive: zip
+          - target: x86_64-unknown-linux-musl
+            archive: tar.gz tar.xz tar.zst
+          - target: x86_64-apple-darwin
+            archive: zip
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Set up Git
-        run: |
-          git fetch --tags
-        # Ensure that the workspace is up-to-date with the remote repository
-
-      - name: Get the last commit message
-        id: get_commit_message
-        run: |
-          echo ::set-output name=COMMIT_MESSAGE::$(git log -1 --pretty=%B)
-
-      - name: Get the tag associated with the last commit
-        id: get_tag
-        run: |
-          echo ::set-output name=TAG_NAME::$(git describe --tags --abbrev=0)
-
-      - name: Set up Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-
-      - name: Build and package for Linux
-        uses: actions-rs/action-cargo@v1
-        with:
-          command: "build"
-          args: "--release --target x86_64-unknown-linux-gnu"
-        env:
-          CRATE_NAME: adhanapp
-        if: success()
-
-      - name: Build and package for macOS (Apple Silicon)
-        uses: actions-rs/action-cargo@v1
-        with:
-          command: "build"
-          args: "--release --target aarch64-apple-darwin"
-        env:
-          CRATE_NAME: adhanapp
-        if: success()
-
-      - name: Create release
-        id: create_release
-        uses: actions/create-release@v1
+      - uses: actions/checkout@v3
+      - name: Compile and release
+        uses: rust-build/rust-build.action@v1.4.5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ steps.get_tag.outputs.TAG_NAME }}  # Use the tag associated with the last commit
-          release_name: Release ${{ steps.get_tag.outputs.TAG_NAME }}  # Use the tag as the release name
-          body: ${{ steps.get_commit_message.outputs.COMMIT_MESSAGE }}  # Use the last commit message as the release body
-
-      - name: Upload Linux binary
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./target/x86_64-unknown-linux-gnu/release/adhanapp
-          asset_name: adhanapp
-          asset_content_type: application/octet-stream
-
-      - name: Upload macOS binary
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./target/aarch64-apple-darwin/release/adhanapp
-          asset_name: adhanapp
-          asset_content_type: application/octet-stream
+          RUSTTARGET: ${{ matrix.target }}
+          ARCHIVE_TYPES: ${{ matrix.archive }}
