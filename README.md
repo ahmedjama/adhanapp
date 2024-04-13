@@ -1,3 +1,3 @@
 # adhanapp
 
-Adhan app for MacOS, Linux and Windows.
+Adhan app for MacOS, Linux.
