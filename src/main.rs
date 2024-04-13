@@ -5,7 +5,7 @@ use home::home_dir;
 use rodio::{Decoder, OutputStream, Sink};
 use std::error::Error;
 use std::fs;
-use serde::{Deserialize};
+use serde::{Deserialize, Serialize};
 extern crate serde_json;
 use rand::seq::SliceRandom;
 use std::path::Path;
@@ -21,7 +21,7 @@ struct Config {
     api_key: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct PrayerTimesResponse {
     fajr: String,
     dhuhr: String,
@@ -31,38 +31,75 @@ struct PrayerTimesResponse {
 }
 
 fn main() {
-    let prayer_times = fetch_prayer_times_from_api();
-
     if let Err(err) = create_adhanapp_folders() {
         eprintln!("Error: {}", err);
     }
 
-    match prayer_times {
-        Ok(times) => {
-            println!("Prayer times: {:?}", times);
-            let times: Vec<TimeInfo> = vec![
-                TimeInfo {
-                    time: NaiveTime::parse_from_str(&times.fajr, "%H:%M").unwrap(),
-                    info: String::from("Fajr"),
-                },
-                TimeInfo {
-                    time: NaiveTime::parse_from_str(&times.dhuhr, "%H:%M").unwrap(),
-                    info: String::from("Dhuhr"),
-                },
-                TimeInfo {
-                    time: NaiveTime::parse_from_str(&times.asr, "%H:%M").unwrap(),
-                    info: String::from("Asr"),
-                },
-                TimeInfo {
-                    time: NaiveTime::parse_from_str(&times.magrib, "%H:%M").unwrap(),
-                    info: String::from("Magrib"),
-                },
-                TimeInfo {
-                    time: NaiveTime::parse_from_str(&times.isha, "%H:%M").unwrap(),
-                    info: String::from("Isha"),
-                },
-            ];            
-            loop {
+    // Fetch and process prayer times when the program starts
+    if let Err(err) = fetch_and_process_prayer_times() {
+        eprintln!("Error fetching and processing prayer times: {}", err);
+        // Terminate the program if fetching and processing fails
+        return;
+    }
+
+    // Spawn a separate thread to continuously update prayer times at 1:00 AM
+    let _ = thread::spawn(|| {
+        loop {
+            // Calculate the duration until 1:00 AM
+            let current_time = chrono::Local::now().time();
+            let end_time = match NaiveTime::from_hms_opt(1, 0, 0) {
+                Some(time) => time,
+                None => {
+                    eprintln!("Invalid time specified.");
+                    return;
+                }
+            };
+            let duration_until_1_am = calculate_duration(&current_time, &end_time);
+            println!("Duration until next fetch time of prayer times: {}", format_duration(duration_until_1_am));
+
+            // Sleep until 1:00 AM
+            thread::sleep(duration_until_1_am.to_std().unwrap());
+            
+
+            // Fetch and process prayer times
+            if let Err(err) = fetch_and_process_prayer_times() {
+                eprintln!("Error fetching and processing prayer times: {}", err);
+            }
+        }
+    });
+  
+    
+    loop {
+        
+        
+        let prayer_times = fetch_prayer_times_from_file();
+        
+
+        match prayer_times {
+            Ok(times) => {
+                println!("Prayer times: {:?}", times);
+                let times: Vec<TimeInfo> = vec![
+                    TimeInfo {
+                        time: NaiveTime::parse_from_str(&times.fajr, "%H:%M").unwrap(),
+                        info: String::from("Fajr"),
+                    },
+                    TimeInfo {
+                        time: NaiveTime::parse_from_str(&times.dhuhr, "%H:%M").unwrap(),
+                        info: String::from("Dhuhr"),
+                    },
+                    TimeInfo {
+                        time: NaiveTime::parse_from_str(&times.asr, "%H:%M").unwrap(),
+                        info: String::from("Asr"),
+                    },
+                    TimeInfo {
+                        time: NaiveTime::parse_from_str(&times.magrib, "%H:%M").unwrap(),
+                        info: String::from("Magrib"),
+                    },
+                    TimeInfo {
+                        time: NaiveTime::parse_from_str(&times.isha, "%H:%M").unwrap(),
+                        info: String::from("Isha"),
+                    },
+                ];            
                 let current_time = chrono::Local::now().time();
                 let upcoming_time = find_upcoming_time(&times, &current_time);
                 match upcoming_time {
@@ -72,10 +109,10 @@ fn main() {
                         println!("Duration until next time: {}", format_duration(duration_until_next));
 
                         let duration_seconds = duration_until_next.num_seconds();
-                        //let duration_seconds = 10; // for testing purposes
+                        //let duration_seconds = 60; // for testing purposes
                         thread::sleep(StdDuration::from_secs(duration_seconds as u64));
                         println!("Time is up! Proceeding now.");
-                        play_adhan(&time_info.info).unwrap();
+                        play_adhan(&time_info.info).unwrap();                     
                         
                     }
                     None => {
@@ -83,12 +120,60 @@ fn main() {
                         break; // Break out of the loop if no upcoming time is found
                     }
                 }
+            },
+            Err(e) => {
+                println!("Error fetching prayer times: {:?}", e);
             }
-        },
-        Err(e) => {
-            println!("Error fetching prayer times: {:?}", e);
         }
     }
+}
+
+fn fetch_and_process_prayer_times() -> Result<(), Box<dyn Error>> {
+    let prayer_times = fetch_prayer_times_from_api()?;
+    save_prayer_times_to_file(&prayer_times)?;
+    Ok(())
+}
+
+fn save_prayer_times_to_file(prayer_times: &PrayerTimesResponse) -> Result<(), Box<dyn Error>> {
+    let prayer_times_json = serde_json::to_string(prayer_times)?;
+    let home_dir = home_dir().ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Failed to determine home directory"))?;
+    let file_path = home_dir.join("adhanapp/prayer_times.json");
+    fs::write(&file_path, prayer_times_json)?;
+    Ok(())
+}
+
+fn fetch_prayer_times_from_file() -> Result<PrayerTimesResponse, Box<dyn Error>> {
+    let home_dir = home_dir().ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Failed to determine home directory"))?;
+    let file_path = home_dir.join("adhanapp/prayer_times.json");
+    let prayer_times_json = fs::read_to_string(&file_path)?;
+    let prayer_times: PrayerTimesResponse = serde_json::from_str(&prayer_times_json)?;
+    Ok(prayer_times)
+}
+
+fn create_adhanapp_folders() -> Result<(), Box<dyn Error>> {
+    let home_dir = home_dir().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::Other, "Failed to determine home directory")
+    })?;
+
+    let adhanapp_media_dir = home_dir.join("adhanapp/media");
+    let adhanapp_config_dir = home_dir.join("adhanapp/config");
+    let fajr_dir = adhanapp_media_dir.join("fajr");
+    let other_dir = adhanapp_media_dir.join("other");
+
+    create_directory(&adhanapp_media_dir)?;
+    create_directory(&adhanapp_config_dir)?;
+    create_directory(&fajr_dir)?;
+    create_directory(&other_dir)?;
+
+    Ok(())
+}
+
+fn create_directory(path: &Path) -> Result<(), Box<dyn Error>> {
+    if !path.exists() {
+        fs::create_dir_all(path)?;
+        println!("Folder '{}' created successfully!", path.display());
+    }
+    Ok(())
 }
 
 fn play_adhan(prayer_name: &str) -> Result<(), Box<dyn Error>> {
@@ -121,8 +206,6 @@ fn play_adhan(prayer_name: &str) -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
-
-
 
 fn find_upcoming_time<'a>(times: &'a [TimeInfo], current_time: &'a NaiveTime) -> Option<&'a TimeInfo> {
     let current_seconds = current_time.num_seconds_from_midnight();
@@ -191,31 +274,4 @@ fn fetch_prayer_times_from_api() -> Result<PrayerTimesResponse, Box<dyn Error>> 
             )))
         }
     }
-}
-
-
-fn create_directory(path: &Path) -> Result<(), Box<dyn Error>> {
-    if !path.exists() {
-        fs::create_dir_all(path)?;
-        println!("Folder '{}' created successfully!", path.display());
-    }
-    Ok(())
-}
-
-fn create_adhanapp_folders() -> Result<(), Box<dyn Error>> {
-    let home_dir = home_dir().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::Other, "Failed to determine home directory")
-    })?;
-
-    let adhanapp_media_dir = home_dir.join("adhanapp/media");
-    let adhanapp_config_dir = home_dir.join("adhanapp/config");
-    let fajr_dir = adhanapp_media_dir.join("fajr");
-    let other_dir = adhanapp_media_dir.join("other");
-
-    create_directory(&adhanapp_media_dir)?;
-    create_directory(&adhanapp_config_dir)?;
-    create_directory(&fajr_dir)?;
-    create_directory(&other_dir)?;
-
-    Ok(())
 }

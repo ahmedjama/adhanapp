@@ -1,56 +1,82 @@
 name: Release
 
-permissions:
-  contents: write
-
 on:
   push:
-    tags:
-      - v[0-9]+.*
+    branches:
+      - main
 
 jobs:
-  create-release:
+  release:
+    name: Release binaries
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: taiki-e/create-gh-release-action@v1
-        with:
-          # (optional) Path to changelog.
-          changelog: CHANGELOG.md
-          # (required) GitHub token for creating GitHub Releases.
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Checkout code
+        uses: actions/checkout@v2
 
-  upload-assets:
-    needs: create-release
-    strategy:
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            features: systemd,io_uring
-          - target: x86_64-apple-darwin
-            os: macos-latest
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: taiki-e/upload-rust-binary-action@v1
+      - name: Set up Git
+        run: |
+          git fetch --tags
+        # Ensure that the workspace is up-to-date with the remote repository
+
+      - name: Get the last commit message
+        id: get_commit_message
+        run: |
+          echo ::set-output name=COMMIT_MESSAGE::$(git log -1 --pretty=%B)
+
+      - name: Get the tag associated with the last commit
+        id: get_tag
+        run: |
+          echo ::set-output name=TAG_NAME::$(git describe --tags --abbrev=0)
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
         with:
-          # (required) Comma-separated list of binary names (non-extension portion of filename) to build and upload.
-          # Note that glob pattern is not supported yet.
-          bin: adhanapp
-          # (optional) Target triple, default is host triple.
-          target: ${{ matrix.target }}
-          # (optional) On which platform to distribute the `.tar.gz` file.
-          # [default value: unix]
-          # [possible values: all, unix, windows, none]
-          tar: unix
-          # (optional) On which platform to distribute the `.zip` file.
-          # [default value: windows]
-          # [possible values: all, unix, windows, none]
-          zip: windows
-          # (optional) Build with the given set of features if any.
-          features: ${{ matrix.features || '' }}
-          # (required) GitHub token for uploading assets to GitHub Releases.
-          token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: stable
+
+      - name: Build and package for Linux
+        uses: actions-rs/action-cargo@v1
+        with:
+          command: "build"
+          args: "--release --target x86_64-unknown-linux-gnu"
+        env:
+          CRATE_NAME: adhanapp
+        if: success()
+
+      - name: Build and package for macOS (Apple Silicon)
+        uses: actions-rs/action-cargo@v1
+        with:
+          command: "build"
+          args: "--release --target aarch64-apple-darwin"
+        env:
+          CRATE_NAME: adhanapp
+        if: success()
+
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.get_tag.outputs.TAG_NAME }}  # Use the tag associated with the last commit
+          release_name: Release ${{ steps.get_tag.outputs.TAG_NAME }}  # Use the tag as the release name
+          body: ${{ steps.get_commit_message.outputs.COMMIT_MESSAGE }}  # Use the last commit message as the release body
+
+      - name: Upload Linux binary
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./target/x86_64-unknown-linux-gnu/release/adhanapp
+          asset_name: adhanapp
+          asset_content_type: application/octet-stream
+
+      - name: Upload macOS binary
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./target/aarch64-apple-darwin/release/adhanapp
+          asset_name: adhanapp
+          asset_content_type: application/octet-stream
