@@ -3,8 +3,8 @@
 # Define variables
 SERVICE_NAME="adhanapp"
 USERNAME=$(whoami)
-BINARY_URL="https://github.com/ahmedjama/adhan/releases/latest/download/adhanapp"
-SERVICE_PATH="/etc/systemd/system/$SERVICE_NAME.service"
+BINARY_URL="https://github.com/ahmedjama/adhanapp/releases/download/v1.0.0/adhanapp-x86_64-unknown-linux-gnu"
+SERVICE_PATH="$HOME/.config/systemd/user/$SERVICE_NAME.service"
 
 # Check if root
 if [[ $EUID -eq 0 ]]; then
@@ -12,46 +12,68 @@ if [[ $EUID -eq 0 ]]; then
     exit 1
 fi
 
-# Check if wget is installed
-if ! command -v wget &> /dev/null; then
-    echo "wget is required to download the binary. Please install wget."
-    exit 1
-fi
+# Define the folder paths
+folders=(
+  "$HOME/adhanapp/media"
+  "$HOME/adhanapp/config"
+  "$HOME/adhanapp/media/fajr"
+  "$HOME/adhanapp/media/other"
+)
 
-# Download the precompiled binary
-mkdir -p /home/$USERNAME/bin
-wget -O /home/$USERNAME/bin/adhanapp $BINARY_URL
-chmod +x /home/$USERNAME/bin/adhanapp
+# Loop through each folder path and create it if it doesn't exist
+for folder in "${folders[@]}"; do
+  if [ ! -d "$folder" ]; then
+    mkdir -p "$folder"
+    echo "Folder '$folder' created successfully!"
+  else
+    echo "Folder '$folder' already exists."
+  fi
+done
 
-# Check if the binary was downloaded successfully
-if [ ! -f "/home/$USERNAME/bin/adhanapp" ]; then
-    echo "Failed to download the binary."
-    exit 1
-fi
+# Define the encoded API key
+encoded_api_key="MmE5OWYxODktNmUzYi00MDE1LThmYjgtZmYyNzc2NDI1NjFk"
+
+# Decode the API key
+decoded_api_key=$(echo "$encoded_api_key" | base64 -d)
+
+# Define the content for adhan_api.json
+api_content=$(printf '{"api_key": "%s"}' "$decoded_api_key")
+
+# Write the content to adhan_api.json (overwrite if exists)
+api_file="$HOME/adhanapp/config/adhan_api.json"
+echo "$api_content" | jq . > "$api_file"
+echo "File '$api_file' created successfully!"
+
+# Download the binary
+binary_file="$HOME/bin/adhanapp"
+
+# Create bin directory if it doesn't exist
+mkdir -p "$HOME/bin"
+
+# Download the binary to ~/bin and make it executable
+curl -L -o "$binary_file" "$BINARY_URL"
+chmod +x "$binary_file"
+echo "Binary downloaded to '$binary_file'."
 
 # Create the systemd service file
-cat > $SERVICE_PATH <<EOF
+mkdir -p "$HOME/.config/systemd/user/"
+cat > "$SERVICE_PATH" <<EOF
 [Unit]
 Description=AdhanApp Service
 After=network.target
 
 [Service]
-User=$USERNAME
-Group=$USERNAME
-ExecStart=/home/$USERNAME/bin/adhanapp
+ExecStart=$binary_file
 Restart=always
 RestartSec=3
-StandardOutput=syslog
-StandardError=syslog
-SyslogIdentifier=$SERVICE_NAME
 
 [Install]
 WantedBy=default.target
 EOF
 
-# Enable and start the service
+# Reload systemd user units and start the service
 systemctl --user daemon-reload
-systemctl --user enable $SERVICE_NAME
-systemctl --user start $SERVICE_NAME
+systemctl --user enable "$SERVICE_NAME"
+systemctl --user start "$SERVICE_NAME"
 
 echo "adhanapp installed and started successfully."
