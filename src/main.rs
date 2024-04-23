@@ -9,16 +9,12 @@ use serde::{Deserialize, Serialize};
 extern crate serde_json;
 use rand::seq::SliceRandom;
 use std::path::Path;
+use std::process::Command;
 
 #[derive(Debug)]
 struct TimeInfo {
     time: NaiveTime,
     info: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct Config {
-    api_key: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -30,7 +26,9 @@ struct PrayerTimesResponse {
     isha: String,
 }
 
-fn main() {
+
+
+fn main() {    
     if let Err(err) = create_adhanapp_folders() {
         eprintln!("Error: {}", err);
     }
@@ -109,10 +107,16 @@ fn main() {
                         println!("Duration until next time: {}", format_duration(duration_until_next));
 
                         let duration_seconds = duration_until_next.num_seconds();
-                        //let duration_seconds = 60; // for testing purposes
+                        //let duration_seconds = 10; // for testing purposes
+                        
                         thread::sleep(StdDuration::from_secs(duration_seconds as u64));
                         println!("Time is up! Proceeding now.");
-                        play_adhan(&time_info.info).unwrap();                     
+
+                        set_rhythmbox_volume(0); // Turn volume off
+                    
+                        play_adhan(&time_info.info).unwrap();
+
+                        set_rhythmbox_volume(1); // Turn volume on                     
                         
                     }
                     None => {
@@ -125,6 +129,18 @@ fn main() {
                 println!("Error fetching prayer times: {:?}", e);
             }
         }
+    }
+}
+
+fn set_rhythmbox_volume(volume: u8) {
+    let rhythmbox_client_path = "/usr/bin/rhythmbox-client";
+    if Path::new(rhythmbox_client_path).exists() {
+        println!("Setting rhythmbox client volume to {}", volume);
+        Command::new(rhythmbox_client_path)
+            .arg("--set-volume")
+            .arg(volume.to_string())
+            .output()
+            .expect("Failed to execute rhythmbox-client command");
     }
 }
 
@@ -249,18 +265,10 @@ fn format_duration(duration: Duration) -> String {
 }
 
 fn fetch_prayer_times_from_api() -> Result<PrayerTimesResponse, Box<dyn Error>> {
-    let home_dir = home_dir().ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Failed to determine home directory"))?;
-    let config_file_path = home_dir.join("adhanapp/config/adhan_api.json");
-    let config_json = fs::read_to_string(&config_file_path)?;
-    let config: Config = serde_json::from_str(&config_json)?;
-
-    let api_url = format!(
-        "https://www.londonprayertimes.com/api/times/?format=json&24hours=true&key={}",
-        config.api_key
-    );
-
-    let response = reqwest::blocking::get(&api_url)?;
-
+    let api_url = "https://raspy-lake-0877.adhanapp.workers.dev/";
+    
+    let response = reqwest::blocking::get(api_url)?;
+    
     match response.status().is_success() {
         true => {
             let response_body = response.text()?;
