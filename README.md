@@ -72,5 +72,5 @@ This script automates the installation process for the Adhan application on a Li
 Contributions are welcome! Please fork the repository, make your changes, and submit a pull request.
 
 ## License
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [Apache License](LICENSE).
 
