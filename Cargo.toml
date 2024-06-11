@@ -16,6 +16,12 @@ rodio = "0.17"
 chrono = "0.4.31"
 rand = "0.8"
 
+[workspace.metadata.dist.target.x86_64-unknown-linux-gnu]
+pre-build = [
+    "dpkg --add-architecture $CROSS_DEB_ARCH", 
+    "apt-get update && apt-get --assume-yes install libssl-dev:$CROSS_DEB_ARCH alsa-base alsa-utils libasound2-dev"
+]
+
 # The profile that 'cargo dist' will build with
 [profile.dist]
 inherits = "release"
@@ -34,3 +40,12 @@ targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-
 # Publish jobs to run in CI
 pr-run-mode = "upload"
 
+
+[workspace.metadata.dist.dependencies.apt]
+alsa-base = '*'
+alsa-utils = '*'
+libasound2-dev = '*'  
+
+#alsa-base = { targets = ["aarch64-pc-windows-msvc"] }
+#alsa-utils = { targets = ["aarch64-pc-windows-msvc"] }
+#libasound2-dev = { version = '3.27.6', targets = ["aarch64-pc-windows-msvc"] }
