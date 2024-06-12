@@ -172,12 +172,10 @@ fn create_adhanapp_folders() -> Result<(), Box<dyn Error>> {
     })?;
 
     let adhanapp_media_dir = home_dir.join("adhanapp/media");
-    let adhanapp_config_dir = home_dir.join("adhanapp/config");
     let fajr_dir = adhanapp_media_dir.join("fajr");
     let other_dir = adhanapp_media_dir.join("other");
 
     create_directory(&adhanapp_media_dir)?;
-    create_directory(&adhanapp_config_dir)?;
     create_directory(&fajr_dir)?;
     create_directory(&other_dir)?;
 
