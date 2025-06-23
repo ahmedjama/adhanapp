@@ -113,10 +113,12 @@ fn main() {
                         println!("Time is up! Proceeding now.");
 
                         set_rhythmbox_volume(0); // Turn volume off
+                        set_mpd_volume(0); // Set MPD volume to 0
                     
                         play_adhan(&time_info.info).unwrap();
 
-                        set_rhythmbox_volume(1); // Turn volume on                     
+                        set_rhythmbox_volume(1); // Turn volume on
+                        set_mpd_volume(70); // Restore MPD volume to 70
                         
                     }
                     None => {
@@ -141,6 +143,18 @@ fn set_rhythmbox_volume(volume: u8) {
             .arg(volume.to_string())
             .output()
             .expect("Failed to execute rhythmbox-client command");
+    }
+}
+
+fn set_mpd_volume(volume: u8) {
+    let mpc_path = "/usr/bin/mpc";
+    if Path::new(mpc_path).exists() {
+        println!("Setting MPD volume to {}", volume);
+        Command::new(mpc_path)
+            .arg("volume")
+            .arg(volume.to_string())
+            .output()
+            .expect("Failed to execute mpc volume");
     }
 }
 
