@@ -45,6 +45,12 @@ jobs:
         uses: taiki-e/setup-cross-toolchain-action@v1
         with:
           target: ${{ matrix.target }}
+      - name: Install system dependencies (native Linux only)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev libasound2-dev build-essential
+      - name: Set extra build dependencies for ALSA and OpenSSL (for cross targets)
+        if: matrix.target != 'x86_64-unknown-linux-gnu'
+        run: echo "CROSS_EXTRA_BUILD_DEPS=alsa-lib-devel,libasound2-dev,libssl-dev,pkg-config" >> $GITHUB_ENV
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
       - name: Prepare artifact
