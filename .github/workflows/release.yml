@@ -53,6 +53,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev libasound2-dev build-essential
       - name: Build
         run: cargo build --release
+      - name: List build output files
+        run: |
+          echo "Listing files in target/${{ matrix.target }}/release:"
+          ls -lh target/${{ matrix.target }}/release || true
       - name: Prepare artifact
         run: |
           mkdir -p dist
