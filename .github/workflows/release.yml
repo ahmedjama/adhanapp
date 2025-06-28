@@ -38,25 +38,17 @@ jobs:
           - armv7-unknown-linux-gnueabihf  # Raspberry Pi (32-bit)
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust (all platforms)
+      - name: Install Rust
         run: rustup update stable
-      - name: Install system dependencies (native Linux only)
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev libasound2-dev build-essential
-      - name: Build (Raspberry Pi with cross)
-        if: matrix.target == 'armv7-unknown-linux-gnueabihf'
-        uses: taiki-e/cross-action@v0
-        with:
-          target: ${{ matrix.target }}
-          args: --release
-      - name: Install cross-compilation tools (Windows only)
-        if: matrix.target == 'x86_64-pc-windows-gnu'
+      - name: Install cross-compilation tools
         uses: taiki-e/setup-cross-toolchain-action@v1
         with:
           target: ${{ matrix.target }}
-      - name: Build (other targets)
-        if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'x86_64-pc-windows-gnu'
-        run: cargo build --release --target ${{ matrix.target }}
+      - name: Install system dependencies (native Linux only)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev libasound2-dev build-essential
+      - name: Build
+        run: cargo build --release
       - name: Prepare artifact
         run: |
           mkdir -p dist
