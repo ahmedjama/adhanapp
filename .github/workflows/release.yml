@@ -45,6 +45,13 @@ jobs:
             os: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Rust (all platforms)
+        run: rustup update stable
+      - name: Install cross-compilation tools (non-macOS)
+        if: runner.os != 'macOS'
+        uses: taiki-e/setup-cross-toolchain-action@v1
+        with:
+          target: ${{ matrix.target }}
       - name: Install Rust toolchain (macOS only)
         if: runner.os == 'macOS'
         uses: actions-rs/toolchain@v1
@@ -52,15 +59,9 @@ jobs:
           toolchain: stable
           target: ${{ matrix.target }}
           override: true
-      - name: Build (Linux/Windows with cross-action)
-        if: runner.os != 'macOS'
-        uses: taiki-e/cross-action@v0
-        with:
-          target: ${{ matrix.target }}
-          args: --release
-      - name: Build (macOS)
-        if: runner.os == 'macOS'
-        run: cargo build --release --target ${{ matrix.target }}
+      - name: Build
+        run: |
+          cargo build --release
       - name: Prepare artifact
         run: |
           mkdir -p dist
