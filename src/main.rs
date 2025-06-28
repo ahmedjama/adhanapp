@@ -106,8 +106,8 @@ fn main() {
                         let duration_until_next = calculate_duration(&current_time, &time_info.time);
                         println!("Duration until next time: {}", format_duration(duration_until_next));
 
-                        //let duration_seconds = duration_until_next.num_seconds();
-                        let duration_seconds = 10; // for testing purposes
+                        let duration_seconds = duration_until_next.num_seconds();
+                        //let duration_seconds = 10; // for testing purposes
                         
                         thread::sleep(StdDuration::from_secs(duration_seconds as u64));
                         println!("Time is up! Proceeding now.");
@@ -118,7 +118,7 @@ fn main() {
                         play_adhan(&time_info.info).unwrap();
 
                         set_rhythmbox_volume(1); // Turn volume on
-                        set_mpd_volume(70); // Restore MPD volume to 70
+                        set_mpd_volume(100); // Restore MPD volume to 100
                         
                     }
                     None => {
