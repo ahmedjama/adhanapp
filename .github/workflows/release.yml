@@ -40,25 +40,22 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust (all platforms)
         run: rustup update stable
-      - name: Install cross-compilation tools (non-armv7 only)
-        if: matrix.target != 'armv7-unknown-linux-gnueabihf'
-        uses: taiki-e/setup-cross-toolchain-action@v1
-        with:
-          target: ${{ matrix.target }}
       - name: Install system dependencies (native Linux only)
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev libasound2-dev build-essential
-      - name: Set extra build dependencies for ALSA and OpenSSL (for cross targets)
-        if: matrix.target != 'x86_64-unknown-linux-gnu' && matrix.target != 'armv7-unknown-linux-gnueabihf'
-        run: echo "CROSS_EXTRA_BUILD_DEPS=alsa-lib-devel,libasound2-dev,libssl-dev,pkg-config" >> $GITHUB_ENV
-      - name: Build (armv7-unknown-linux-gnueabihf with cross)
+      - name: Build (Raspberry Pi with cross)
         if: matrix.target == 'armv7-unknown-linux-gnueabihf'
         uses: taiki-e/cross-action@v0
         with:
           target: ${{ matrix.target }}
           args: --release
+      - name: Install cross-compilation tools (Windows only)
+        if: matrix.target == 'x86_64-pc-windows-gnu'
+        uses: taiki-e/setup-cross-toolchain-action@v1
+        with:
+          target: ${{ matrix.target }}
       - name: Build (other targets)
-        if: matrix.target != 'armv7-unknown-linux-gnueabihf'
+        if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'x86_64-pc-windows-gnu'
         run: cargo build --release --target ${{ matrix.target }}
       - name: Prepare artifact
         run: |
