@@ -10,6 +10,18 @@ extern crate serde_json;
 use rand::seq::SliceRandom;
 use std::path::Path;
 use std::process::Command;
+use toml;
+
+#[derive(Debug, Deserialize)]
+struct Config {
+    api_url: String,
+    mpd: MpdConfig,
+}
+
+#[derive(Debug, Deserialize)]
+struct MpdConfig {
+    volume: u8,
+}
 
 #[derive(Debug)]
 struct TimeInfo {
@@ -112,13 +124,14 @@ fn main() {
                         thread::sleep(StdDuration::from_secs(duration_seconds as u64));
                         println!("Time is up! Proceeding now.");
 
+                        let config = read_config().unwrap();
                         set_rhythmbox_volume(0); // Turn volume off
                         set_mpd_volume(0); // Set MPD volume to 0
                     
                         play_adhan(&time_info.info).unwrap();
 
                         set_rhythmbox_volume(1); // Turn volume on
-                        set_mpd_volume(100); // Restore MPD volume to 100
+                        set_mpd_volume(config.mpd.volume); // Restore MPD volume from config
                         
                     }
                     None => {
@@ -276,8 +289,17 @@ fn format_duration(duration: Duration) -> String {
     format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
 }
 
+fn read_config() -> Result<Config, Box<dyn Error>> {
+    let home_dir = home_dir().ok_or("Failed to determine home directory")?;
+    let config_path = home_dir.join("adhanapp/config.toml");
+    let config_str = fs::read_to_string(config_path)?;
+    let config: Config = toml::from_str(&config_str)?;
+    Ok(config)
+}
+
 fn fetch_prayer_times_from_api() -> Result<PrayerTimesResponse, Box<dyn Error>> {
-    let api_url = "https://raspy-lake-0877.adhanapp.workers.dev/";
+    let config = read_config()?;
+    let api_url = &config.api_url;
     
     let response = reqwest::blocking::get(api_url)?;
     

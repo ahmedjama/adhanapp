@@ -1,0 +1,4 @@
+api_url = "https://raspy-lake-0877.adhanapp.workers.dev/"
+
+[mpd]
+volume = 80
