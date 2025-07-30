@@ -9,7 +9,6 @@ fi
 # Define the folder paths
 folders=(
   "$HOME/adhanapp/media"
-  "$HOME/adhanapp/config"
   "$HOME/adhanapp/media/fajr"
   "$HOME/adhanapp/media/other"
 )
@@ -23,6 +22,20 @@ for folder in "${folders[@]}"; do
     echo "Folder '$folder' already exists."
   fi
 done
+
+# Create config.toml if it doesn't exist
+CONFIG_FILE="$HOME/adhanapp/config.toml"
+if [ ! -f "$CONFIG_FILE" ]; then
+  echo "Creating default config file at $CONFIG_FILE"
+  cat > "$CONFIG_FILE" <<EOF
+api_url = "https://raspy-lake-0877.adhanapp.workers.dev/"
+
+[mpd]
+volume = 80
+EOF
+else
+  echo "Config file already exists at $CONFIG_FILE"
+fi
 
 
 # Download the binary
