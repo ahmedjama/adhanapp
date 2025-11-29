@@ -1,4 +1,4 @@
-use chrono::{NaiveTime, Timelike, Duration};
+use chrono::{NaiveTime, Timelike, Duration, Datelike};
 use std::thread;
 use std::time::Duration as StdDuration;
 use home::home_dir;
@@ -36,6 +36,22 @@ struct PrayerTimesResponse {
     asr: String,
     magrib: String,
     isha: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct YearPrayerTimes {
+    city: Option<String>,
+    times: std::collections::HashMap<String, DayTimes>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct DayTimes {
+    date: Option<String>,
+    fajr: Option<String>,
+    dhuhr: Option<String>,
+    asr: Option<String>,
+    magrib: Option<String>,
+    isha: Option<String>,
 }
 
 
@@ -172,11 +188,48 @@ fn set_mpd_volume(volume: u8) {
 }
 
 fn fetch_and_process_prayer_times() -> Result<(), Box<dyn Error>> {
-    let prayer_times = fetch_prayer_times_from_api()?;
-    save_prayer_times_to_file(&prayer_times)?;
-    Ok(())
-}
+    // Ensure we have a yearly prayer times file for the current year.
+    let year = chrono::Local::now().year();
+    let home_dir = home_dir().ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Failed to determine home directory"))?;
+    let file_path = home_dir.join(format!("adhanapp/prayer_times_{}.json", year));
 
+    if file_path.exists() {
+        // Already have this year's file — nothing to do
+        return Ok(());
+    }
+
+    // Try to fetch the yearly file from the API. If this fails, but an older
+    // prayer_times file exists, keep using it (resilience to internet outages).
+    match fetch_year_prayer_times_from_api() {
+        Ok(year_data) => {
+            save_year_prayer_times_to_file(&year_data, year)?;
+            Ok(())
+        }
+        Err(e) => {
+            // Look for any existing prayer_times_*.json file and keep using it.
+            let dir = home_dir.join("adhanapp");
+            if dir.exists() {
+                if let Ok(entries) = fs::read_dir(&dir) {
+                    for entry in entries.filter_map(|e| e.ok()) {
+                        let p = entry.path();
+                        if p.is_file() {
+                            if let Some(fname) = p.file_name().and_then(|s| s.to_str()) {
+                                if fname.starts_with("prayer_times_") && fname.ends_with(".json") {
+                                    println!("Fetch failed but found fallback file: {}", fname);
+                                    return Ok(());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // No fallback file found — surface the original error
+            Err(e)
+        }
+    }
+}
+/*
 fn save_prayer_times_to_file(prayer_times: &PrayerTimesResponse) -> Result<(), Box<dyn Error>> {
     let prayer_times_json = serde_json::to_string(prayer_times)?;
     let home_dir = home_dir().ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Failed to determine home directory"))?;
@@ -184,13 +237,70 @@ fn save_prayer_times_to_file(prayer_times: &PrayerTimesResponse) -> Result<(), B
     fs::write(&file_path, prayer_times_json)?;
     Ok(())
 }
+*/
+fn save_year_prayer_times_to_file(year_data: &YearPrayerTimes, year: i32) -> Result<(), Box<dyn Error>> {
+    let prayer_times_json = serde_json::to_string(year_data)?;
+    let home_dir = home_dir().ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Failed to determine home directory"))?;
+    let file_path = home_dir.join(format!("adhanapp/prayer_times_{}.json", year));
+    fs::write(&file_path, prayer_times_json)?;
+    Ok(())
+}
 
 fn fetch_prayer_times_from_file() -> Result<PrayerTimesResponse, Box<dyn Error>> {
     let home_dir = home_dir().ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Failed to determine home directory"))?;
-    let file_path = home_dir.join("adhanapp/prayer_times.json");
-    let prayer_times_json = fs::read_to_string(&file_path)?;
-    let prayer_times: PrayerTimesResponse = serde_json::from_str(&prayer_times_json)?;
-    Ok(prayer_times)
+    let year = chrono::Local::now().year();
+    let file_path = home_dir.join(format!("adhanapp/prayer_times_{}.json", year));
+
+    // Prefer current year file
+    if file_path.exists() {
+        let prayer_times_json = fs::read_to_string(&file_path)?;
+        let year_data: YearPrayerTimes = serde_json::from_str(&prayer_times_json)?;
+        let today = chrono::Local::now().date_naive().to_string();
+        if let Some(day) = year_data.times.get(&today) {
+            let res = PrayerTimesResponse {
+                fajr: day.fajr.clone().unwrap_or_default(),
+                dhuhr: day.dhuhr.clone().unwrap_or_default(),
+                asr: day.asr.clone().unwrap_or_default(),
+                magrib: day.magrib.clone().unwrap_or_default(),
+                isha: day.isha.clone().unwrap_or_default(),
+            };
+            return Ok(res);
+        } else {
+            return Err(Box::new(std::io::Error::new(std::io::ErrorKind::NotFound, "Today's times not found in year file")));
+        }
+    }
+
+    // Fallback: look for any existing prayer_times_*.json file
+    let dir = home_dir.join("adhanapp");
+    if dir.exists() {
+        if let Ok(entries) = fs::read_dir(&dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let p = entry.path();
+                if p.is_file() {
+                    if let Some(fname) = p.file_name().and_then(|s| s.to_str()) {
+                        if fname.starts_with("prayer_times_") && fname.ends_with(".json") {
+                            let prayer_times_json = fs::read_to_string(&p)?;
+                            if let Ok(year_data) = serde_json::from_str::<YearPrayerTimes>(&prayer_times_json) {
+                                let today = chrono::Local::now().date_naive().to_string();
+                                if let Some(day) = year_data.times.get(&today) {
+                                    let res = PrayerTimesResponse {
+                                        fajr: day.fajr.clone().unwrap_or_default(),
+                                        dhuhr: day.dhuhr.clone().unwrap_or_default(),
+                                        asr: day.asr.clone().unwrap_or_default(),
+                                        magrib: day.magrib.clone().unwrap_or_default(),
+                                        isha: day.isha.clone().unwrap_or_default(),
+                                    };
+                                    return Ok(res);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Err(Box::new(std::io::Error::new(std::io::ErrorKind::NotFound, "No prayer times file found")))
 }
 
 fn create_adhanapp_folders() -> Result<(), Box<dyn Error>> {
@@ -296,24 +406,38 @@ fn read_config() -> Result<Config, Box<dyn Error>> {
     let config: Config = toml::from_str(&config_str)?;
     Ok(config)
 }
-
+/*
 fn fetch_prayer_times_from_api() -> Result<PrayerTimesResponse, Box<dyn Error>> {
     let config = read_config()?;
     let api_url = &config.api_url;
-    
+    // This function remains for compatibility with single-day API responses.
     let response = reqwest::blocking::get(api_url)?;
-    
-    match response.status().is_success() {
-        true => {
-            let response_body = response.text()?;
-            let prayer_times: PrayerTimesResponse = serde_json::from_str(&response_body)?;
-            Ok(prayer_times)
-        },
-        false => {
-            Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Failed to fetch prayer times",
-            )))
-        }
+    if response.status().is_success() {
+        let response_body = response.text()?;
+        let prayer_times: PrayerTimesResponse = serde_json::from_str(&response_body)?;
+        Ok(prayer_times)
+    } else {
+        Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "Failed to fetch prayer times")))
+    }
+}
+    */
+
+fn fetch_year_prayer_times_from_api() -> Result<YearPrayerTimes, Box<dyn Error>> {
+    let config = read_config()?;
+    let api_url = &config.api_url;
+
+    let year_url = if api_url.ends_with('/') {
+        format!("{}year", api_url)
+    } else {
+        format!("{}/year", api_url)
+    };
+
+    let response = reqwest::blocking::get(&year_url)?;
+    if response.status().is_success() {
+        let response_body = response.text()?;
+        let year_data: YearPrayerTimes = serde_json::from_str(&response_body)?;
+        Ok(year_data)
+    } else {
+        Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "Failed to fetch yearly prayer times")))
     }
 }
