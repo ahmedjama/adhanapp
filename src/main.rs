@@ -135,7 +135,7 @@ fn main() {
                         println!("Duration until next time: {}", format_duration(duration_until_next));
 
                         let duration_seconds = duration_until_next.num_seconds();
-                        let duration_seconds = 10; // for testing purposes
+                        //let duration_seconds = 10; // for testing purposes
                         
                         thread::sleep(StdDuration::from_secs(duration_seconds as u64));
                         println!("Time is up! Proceeding now.");
