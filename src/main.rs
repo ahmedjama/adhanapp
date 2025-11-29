@@ -229,15 +229,7 @@ fn fetch_and_process_prayer_times() -> Result<(), Box<dyn Error>> {
         }
     }
 }
-/*
-fn save_prayer_times_to_file(prayer_times: &PrayerTimesResponse) -> Result<(), Box<dyn Error>> {
-    let prayer_times_json = serde_json::to_string(prayer_times)?;
-    let home_dir = home_dir().ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Failed to determine home directory"))?;
-    let file_path = home_dir.join("adhanapp/prayer_times.json");
-    fs::write(&file_path, prayer_times_json)?;
-    Ok(())
-}
-*/
+
 fn save_year_prayer_times_to_file(year_data: &YearPrayerTimes, year: i32) -> Result<(), Box<dyn Error>> {
     let prayer_times_json = serde_json::to_string(year_data)?;
     let home_dir = home_dir().ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Failed to determine home directory"))?;
@@ -406,21 +398,6 @@ fn read_config() -> Result<Config, Box<dyn Error>> {
     let config: Config = toml::from_str(&config_str)?;
     Ok(config)
 }
-/*
-fn fetch_prayer_times_from_api() -> Result<PrayerTimesResponse, Box<dyn Error>> {
-    let config = read_config()?;
-    let api_url = &config.api_url;
-    // This function remains for compatibility with single-day API responses.
-    let response = reqwest::blocking::get(api_url)?;
-    if response.status().is_success() {
-        let response_body = response.text()?;
-        let prayer_times: PrayerTimesResponse = serde_json::from_str(&response_body)?;
-        Ok(prayer_times)
-    } else {
-        Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "Failed to fetch prayer times")))
-    }
-}
-    */
 
 fn fetch_year_prayer_times_from_api() -> Result<YearPrayerTimes, Box<dyn Error>> {
     let config = read_config()?;
