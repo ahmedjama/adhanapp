@@ -1,8 +1,8 @@
 [package]
 repository = "https://github.com/ahmedjama/adhanapp"
 name = "adhanapp"
-version = "1.0.2"
-edition = "2025"
+version = "1.0.3"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
