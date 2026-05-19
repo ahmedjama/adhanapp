@@ -68,38 +68,44 @@ fn main() {
         return;
     }
 
-    // Spawn a separate thread to continuously update prayer times at 1:00 AM
+    // Spawn a background thread that wakes at 1:00 AM every day and, on the last
+    // day of the year (31 December), downloads the following year's prayer times
+    // file. This keeps internet use to a single annual fetch while ensuring the
+    // app has data ready before the new year begins.
     let _ = thread::spawn(|| {
         loop {
-            // Calculate the duration until 1:00 AM
             let current_time = chrono::Local::now().time();
-            let end_time = match NaiveTime::from_hms_opt(1, 0, 0) {
-                Some(time) => time,
+            let wake_time = match NaiveTime::from_hms_opt(1, 0, 0) {
+                Some(t) => t,
                 None => {
-                    eprintln!("Invalid time specified.");
+                    eprintln!("Invalid wake time specified.");
                     return;
                 }
             };
-            let duration_until_1_am = calculate_duration(&current_time, &end_time);
-            println!("Duration until next fetch time of prayer times: {}", format_duration(duration_until_1_am));
 
-            // Sleep until 1:00 AM
-            thread::sleep(duration_until_1_am.to_std().unwrap());
-            
+            let duration_until_wake = calculate_duration(&current_time, &wake_time);
+            println!(
+                "Background renewal thread sleeping for: {}",
+                format_duration(duration_until_wake)
+            );
+            thread::sleep(duration_until_wake.to_std().unwrap());
 
-            // Fetch and process prayer times
-            if let Err(err) = fetch_and_process_prayer_times() {
-                eprintln!("Error fetching and processing prayer times: {}", err);
+            // Only act on 31 December — fetch the next year's file.
+            let now = chrono::Local::now();
+            if now.month() == 12 && now.day() == 31 {
+                println!("Last day of year — fetching next year's prayer times.");
+                if let Err(err) = fetch_and_process_prayer_times() {
+                    eprintln!("Error fetching next year's prayer times: {}", err);
+                }
+            } else {
+                println!("Background renewal check: not year-end, nothing to do.");
             }
         }
     });
   
     
     loop {
-        
-        
         let prayer_times = fetch_prayer_times_from_file();
-        
 
         match prayer_times {
             Ok(times) => {
@@ -188,21 +194,32 @@ fn set_mpd_volume(volume: u8) {
 }
 
 fn fetch_and_process_prayer_times() -> Result<(), Box<dyn Error>> {
-    // Ensure we have a yearly prayer times file for the current year.
-    let year = chrono::Local::now().year();
+    // When called on 31 December we want to pre-fetch the *next* year's file so
+    // the app is ready to go on 1 January without needing internet access.
+    let now = chrono::Local::now();
+    let target_year = if now.month() == 12 && now.day() == 31 {
+        now.year() + 1
+    } else {
+        now.year()
+    };
+
     let home_dir = home_dir().ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Failed to determine home directory"))?;
-    let file_path = home_dir.join(format!("adhanapp/prayer_times_{}.json", year));
+    let file_path = home_dir.join(format!("adhanapp/prayer_times_{}.json", target_year));
 
     if file_path.exists() {
-        // Already have this year's file — nothing to do
+        // Already have the target year's file — nothing to do.
+        println!("Prayer times file for {} already exists.", target_year);
         return Ok(());
     }
 
-    // Try to fetch the yearly file from the API. If this fails, but an older
+    println!("Fetching prayer times for {} from API.", target_year);
+
+    // Try to fetch the yearly file from the API. If this fails but an older
     // prayer_times file exists, keep using it (resilience to internet outages).
     match fetch_year_prayer_times_from_api() {
         Ok(year_data) => {
-            save_year_prayer_times_to_file(&year_data, year)?;
+            save_year_prayer_times_to_file(&year_data, target_year)?;
+            println!("Prayer times for {} saved successfully.", target_year);
             Ok(())
         }
         Err(e) => {
@@ -224,7 +241,7 @@ fn fetch_and_process_prayer_times() -> Result<(), Box<dyn Error>> {
                 }
             }
 
-            // No fallback file found — surface the original error
+            // No fallback file found — surface the original error.
             Err(e)
         }
     }
@@ -357,12 +374,16 @@ fn find_upcoming_time<'a>(times: &'a [TimeInfo], current_time: &'a NaiveTime) ->
 
     for time_info in times {
         let time_seconds = time_info.time.num_seconds_from_midnight();
-        let diff = if time_seconds > current_seconds {
-            time_seconds - current_seconds
-        } else {
-            time_seconds + 24 * 3600 - current_seconds
-        };
 
+        // Only consider prayer times that are strictly in the future today.
+        // Once all prayers have passed, return None so the outer loop re-fetches
+        // the next day's times from the year file instead of wrapping around to
+        // yesterday's Fajr.
+        if time_seconds <= current_seconds {
+            continue;
+        }
+
+        let diff = time_seconds - current_seconds;
         if diff < min_diff {
             min_diff = diff;
             next_time = Some(time_info);
@@ -416,5 +437,68 @@ fn fetch_year_prayer_times_from_api() -> Result<YearPrayerTimes, Box<dyn Error>>
         Ok(year_data)
     } else {
         Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "Failed to fetch yearly prayer times")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::NaiveTime;
+
+    fn t(h: u32, m: u32) -> NaiveTime {
+        NaiveTime::from_hms_opt(h, m, 0).unwrap()
+    }
+
+    fn sample_times() -> Vec<TimeInfo> {
+        vec![
+            TimeInfo { time: t(5, 30),  info: "Fajr".into() },
+            TimeInfo { time: t(13, 0),  info: "Dhuhr".into() },
+            TimeInfo { time: t(16, 30), info: "Asr".into() },
+            TimeInfo { time: t(19, 45), info: "Magrib".into() },
+            TimeInfo { time: t(21, 15), info: "Isha".into() },
+        ]
+    }
+
+    #[test]
+    fn picks_next_prayer_during_day() {
+        let now = t(14, 0); // between Dhuhr and Asr
+        let times = sample_times();
+        let next = find_upcoming_time(&times, &now).unwrap();
+        assert_eq!(next.info, "Asr");
+    }
+
+    #[test]
+    fn picks_first_prayer_of_day() {
+        let now = t(3, 0); // before Fajr
+        let times = sample_times();
+        let next = find_upcoming_time(&times, &now).unwrap();
+        assert_eq!(next.info, "Fajr");
+    }
+
+    #[test]
+    fn returns_none_after_isha() {
+        // Regression test for the Fajr wrap-around bug — old code would return
+        // today's Fajr here instead of None, causing yesterday's time to fire.
+        let now = t(22, 0); // after all prayers
+        let times = sample_times();
+        let result = find_upcoming_time(&times, &now);
+        assert!(result.is_none(), "Expected None after last prayer, got {:?}", result.map(|t| &t.info));
+    }
+
+    #[test]
+    fn picks_isha_just_before_it() {
+        let now = t(21, 14); // 1 minute before Isha
+        let times = sample_times();
+        let next = find_upcoming_time(&times, &now).unwrap();
+        assert_eq!(next.info, "Isha");
+    }
+
+    #[test]
+    fn returns_none_exactly_at_isha() {
+        // The prayer fires at the exact second, so that moment is no longer upcoming.
+        let now = t(21, 15);
+        let times = sample_times();
+        let result = find_upcoming_time(&times, &now);
+        assert!(result.is_none());
     }
 }
